@@ -1,6 +1,19 @@
 import requests
 import ujson
 import os
+import logging
+from pprint import pformat
+from .utils.jobs import JobDBCache, JobCombatCategory
+
+# cards = {
+#     "1000913": # Balance Drawn, https://www.garlandtools.org/db/#status/913
+#     "1000914": # Bole Drawn, https://www.garlandtools.org/db/#status/914
+#     "1000915": # Arrow Drawn, https://www.garlandtools.org/db/#status/915
+#     "1000916": # Spear Drawn, https://www.garlandtools.org/db/#status/916
+#     "1000917": # Ewer Drawn, https://www.garlandtools.org/db/#status/917
+#     "1000918": # Spire Drawn, https://www.garlandtools.org/db/#status/918
+# }
+logging.basicConfig(level="DEBUG")
 
 
 def fflogs_fetch(api_url, options):
@@ -52,7 +65,7 @@ def fflogs_api(call, report, options={}):
 
 def get_draws(report, start, end):
     """
-    Gets a list of tether buffs
+    Gets a list of card draws
     """
     options = {
         "start": start,
@@ -70,6 +83,18 @@ def get_draws(report, start, end):
     return tethers
 
 
+def get_dmg_events(report, start, end):
+    """
+    docstring
+    """
+    pass
+
+
 def app():
-    draws = get_draws("cZGBRqWgfPVKp3yx", 8081809, 8567936)
-    print(draws)
+    jobDb = JobDBCache()
+    dnc = jobDb.get_job_by_name("Dancer")
+    logging.info(pformat(dnc))
+    print(dnc.job_combat_category == JobCombatCategory.DPS_RANGED)
+    # report = "cZGBRqWgfPVKp3yx"
+    # draws = get_draws(report, 8081809, 8567936)
+    # logging.info(pformat(draws))
