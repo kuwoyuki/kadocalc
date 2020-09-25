@@ -3,7 +3,8 @@ import ujson
 import os
 import logging
 from pprint import pformat
-from .utils.jobs import JobDBCache, JobCombatCategory
+from .utils.jobs import JobDBCacheSingleton, JobCombatCategory
+import re
 
 # cards = {
 #     "1000913": # Balance Drawn, https://www.garlandtools.org/db/#status/913
@@ -14,6 +15,7 @@ from .utils.jobs import JobDBCache, JobCombatCategory
 #     "1000918": # Spire Drawn, https://www.garlandtools.org/db/#status/918
 # }
 logging.basicConfig(level="DEBUG")
+PASCAL_CASE_PATTERN = re.compile(r"(?<!^)(?=[A-Z])")
 
 
 def fflogs_fetch(api_url, options):
@@ -32,7 +34,7 @@ def fflogs_api(call, report, options={}):
     """
     Makes a call to the FFLogs API and returns a dictionary
     """
-    if call not in ["fights", "events/summary", "events/damage-done" "tables/summary"]:
+    if call not in ["fights", "events/summary", "events/damage-done", "tables/summary"]:
         return {}
 
     api_url = "https://www.fflogs.com/v1/report/{}/{}".format(call, report)
@@ -40,7 +42,7 @@ def fflogs_api(call, report, options={}):
     data = fflogs_fetch(api_url, options)
 
     # If this is a fight list, we're done already
-    if call in ["fights", "summary"]:
+    if call in ["fights", "summary", "events/summary"]:
         return data
 
     # If this is events, there might be more. Fetch until we have all of it
@@ -90,11 +92,29 @@ def get_dmg_events(report, start, end):
     pass
 
 
+def map_comp(comp):
+    job_name = PASCAL_CASE_PATTERN.sub(" ", comp["type"])
+    job = JobDBCacheSingleton.get_job_by_name(job_name)
+    return {"id": comp["id"], "guid": comp["guid"], "name": comp["name"], "job": job}
+
+
+def get_summary(report, start, end):
+    """
+    docstring
+    """
+    options = {"start": start, "end": end}
+    res = fflogs_api("tables/summary", report, options)
+    return [map_comp(c) for c in res["composition"]]
+
+
 def app():
-    jobDb = JobDBCache()
-    dnc = jobDb.get_job_by_name("Dancer")
+    dnc = JobDBCacheSingleton.get_job_by_name("Dancer")
     logging.info(pformat(dnc))
     print(dnc.job_combat_category == JobCombatCategory.DPS_RANGED)
-    # report = "cZGBRqWgfPVKp3yx"
-    # draws = get_draws(report, 8081809, 8567936)
+    report = "cZGBRqWgfPVKp3yx"
+    start = 8081809
+    end = 8567936
+    # draws = get_draws(report, start, end)
+    summary = get_summary(report, start, end)
     # logging.info(pformat(draws))
+    logging.info(pformat(summary))

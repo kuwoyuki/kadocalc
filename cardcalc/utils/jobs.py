@@ -409,3 +409,6 @@ class JobDBCache(object):
 
     def get_job_by_id(self, id):
         return self.jobs_by_id.get(id)
+
+
+JobDBCacheSingleton = JobDBCache()
