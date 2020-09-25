@@ -85,36 +85,62 @@ def get_draws(report, start, end):
     return tethers
 
 
-def get_dmg_events(report, start, end):
-    """
-    docstring
-    """
-    pass
-
-
 def map_comp(comp):
+    """
+    Maps party composition from summary into a smaller object
+    """
     job_name = PASCAL_CASE_PATTERN.sub(" ", comp["type"])
     job = JobDBCacheSingleton.get_job_by_name(job_name)
     return {"id": comp["id"], "guid": comp["guid"], "name": comp["name"], "job": job}
 
 
-def get_summary(report, start, end):
+def get_party(report, start, end):
     """
-    docstring
+    Makes an fflogs req for summary -> party composition
     """
     options = {"start": start, "end": end}
     res = fflogs_api("tables/summary", report, options)
     return [map_comp(c) for c in res["composition"]]
 
 
+def get_dmg_events(report, start, end):
+    """
+    Gets all damage events in a specified timeframe
+    """
+    options = {"start": start, "end": end}
+    events = fflogs_api("events/damage-done", report, options)["events"]
+
+    # TODO: dict with jobs
+    lst = [[]]
+    start = events[0]["timestamp"]
+    for x in events:
+        if x["timestamp"] - start <= 1000:
+            lst[-1].append(x)
+        else:
+            lst.append([x])
+            start = x["timestamp"]
+
+    return lst
+
+
 def app():
-    dnc = JobDBCacheSingleton.get_job_by_name("Dancer")
-    logging.info(pformat(dnc))
-    print(dnc.job_combat_category == JobCombatCategory.DPS_RANGED)
-    report = "cZGBRqWgfPVKp3yx"
-    start = 8081809
-    end = 8567936
-    # draws = get_draws(report, start, end)
-    summary = get_summary(report, start, end)
-    # logging.info(pformat(draws))
-    logging.info(pformat(summary))
+    """
+    Runs the app
+    """
+    # debug
+    args = ["cZGBRqWgfPVKp3yx", 8081809, 8567936]
+    party = get_party(*args)
+    draws = get_draws(*args)
+    # parse draw
+    first_draw = draws[0]
+    first_draw_dmg = get_dmg_events(
+        args[0], first_draw["timestamp"], first_draw["timestamp"] + 45000
+    )
+
+    f = open("dict.json", "w")
+    f.write(ujson.dumps(first_draw_dmg))
+    f.close()
+
+    logging.info(pformat(party))
+    logging.info(pformat(first_draw))
+    logging.info(pformat(first_draw_dmg))
