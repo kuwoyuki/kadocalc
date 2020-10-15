@@ -177,7 +177,6 @@ def get_fight_times(report, fight_id):
     Gets fight start and end by id
     """
     res = fflogs_api("fights", report)
-    print(res)
     fight = next((fight for fight in res["fights"] if fight["id"] == fight_id), None)
     return fight["start_time"], fight["end_time"]
 
@@ -226,5 +225,4 @@ def app(report, fight):
             click.echo(
                 f'{i+1}. {job["name"]} ({job["job"]}), Total DMG: {job["total_damage"]}, Card @ {tcs}'
             )
-
-    # logging.debug(ujson.dumps(res))
+        click.echo("\n")
