@@ -183,14 +183,14 @@ def get_fight_times(report, fight_id):
 
 @click.command()
 @click.option(
-    "--report", required=True, prompt="FFLogs report ID", help="Number of greetings."
+    "--report", required=True, prompt="Report ID", help="FFLogs report ID."
 )
 @click.option(
     "--fight",
     required=True,
-    prompt="FFLogs report fight ID",
+    prompt="Fight ID",
     type=int,
-    help="The person to greet.",
+    help="FFLogs fight ID.",
 )
 def app(report, fight):
     """
