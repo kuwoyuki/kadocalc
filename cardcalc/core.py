@@ -2,9 +2,10 @@ import requests
 import ujson
 import os
 import logging
-from pprint import pformat
-from .utils.jobs import JobDBCacheSingleton, JobCombatCategory
 import re
+from pprint import pformat
+
+from .utils.jobs import JobDBCacheSingleton, JobCombatCategory
 
 # cards = {
 #     "1000913": # Balance Drawn, https://www.garlandtools.org/db/#status/913
@@ -34,7 +35,13 @@ def fflogs_api(call, report, options={}):
     """
     Makes a call to the FFLogs API and returns a dictionary
     """
-    if call not in ["fights", "events/summary", "events/damage-done", "tables/summary"]:
+    if call not in [
+        "fights",
+        "events/summary",
+        "events/damage-done",
+        "tables/summary",
+        "tables/damage-done",
+    ]:
         return {}
 
     api_url = "https://www.fflogs.com/v1/report/{}/{}".format(call, report)
@@ -77,12 +84,12 @@ def get_draws(report, start, end):
     }
 
     event_data = fflogs_api("events/summary", report, options)
-    tethers = [
+    draws = [
         {"timestamp": e["timestamp"], "card": e["ability"]}
         for e in event_data["events"]
     ]
 
-    return tethers
+    return draws
 
 
 def map_comp(comp):
@@ -91,7 +98,19 @@ def map_comp(comp):
     """
     job_name = PASCAL_CASE_PATTERN.sub(" ", comp["type"])
     job = JobDBCacheSingleton.get_job_by_name(job_name)
-    return {"id": comp["id"], "guid": comp["guid"], "name": comp["name"], "job": job}
+
+    pets = comp["pets"] if "pets" in comp else []
+
+    return {
+        "id": comp["id"],
+        "guid": comp["guid"],
+        "name": comp["name"],
+        "job": "N/A" if job is None else job[1],
+        "pets": [
+            {"id": p["id"], "guid": p["guid"], "name": p["name"], "type": p["type"]}
+            for p in pets
+        ],
+    }
 
 
 def get_party(report, start, end):
@@ -99,11 +118,11 @@ def get_party(report, start, end):
     Makes an fflogs req for summary -> party composition
     """
     options = {"start": start, "end": end}
-    res = fflogs_api("tables/summary", report, options)
-    return [map_comp(c) for c in res["composition"]]
+    res = fflogs_api("tables/damage-done", report, options)
+    return [map_comp(c) for c in res["entries"]]
 
 
-def get_dmg_events(report, start, end):
+def get_dmg_events(report, start, end, party):
     """
     Gets all damage events in a specified timeframe
     """
@@ -111,16 +130,28 @@ def get_dmg_events(report, start, end):
     events = fflogs_api("events/damage-done", report, options)["events"]
 
     # TODO: dict with jobs
-    lst = [[]]
     start = events[0]["timestamp"]
     for x in events:
+        src_id = x["sourceID"]
+        src_idx = None
+        for i, p in enumerate(party):
+            if p["id"] == src_id or (p["pets"] and any(src_id in y for y in p["pets"])):
+                src_idx = i
+
+        if src_idx is None:
+            continue
+
+        src = party[src_idx]
+        if "events" not in src:
+            src["events"] = [[]]
+
         if x["timestamp"] - start <= 1000:
-            lst[-1].append(x)
+            src["events"][-1].append(x)
         else:
-            lst.append([x])
+            src["events"].append([x])
             start = x["timestamp"]
 
-    return lst
+    return party
 
 
 def app():
@@ -129,12 +160,14 @@ def app():
     """
     # debug
     args = ["cZGBRqWgfPVKp3yx", 8081809, 8567936]
+
+    # party = {x["id"]: x for x in get_party(*args)}
     party = get_party(*args)
     draws = get_draws(*args)
     # parse draw
     first_draw = draws[0]
     first_draw_dmg = get_dmg_events(
-        args[0], first_draw["timestamp"], first_draw["timestamp"] + 45000
+        args[0], first_draw["timestamp"], first_draw["timestamp"] + 45000, party
     )
 
     f = open("dict.json", "w")

@@ -2,7 +2,7 @@
 {
   "deno.enable": true,
   "python.formatting.provider": "black",
-  "python.pythonPath": "/home/mira/.cache/pypoetry/virtualenvs/cardcalc-2gswuEOq-py3.8/bin/python",
+  "python.pythonPath": "/home/mira/.cache/pypoetry/virtualenvs/cardcalc-2gswuEOq-py3.9/bin/python",
   "python.linting.pylintEnabled": false,
   "python.linting.flake8Enabled": true,
   "python.linting.enabled": true
