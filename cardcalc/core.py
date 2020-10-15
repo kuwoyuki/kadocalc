@@ -4,8 +4,10 @@ import os
 import logging
 import re
 from pprint import pformat
+import datetime
 
-from .utils.jobs import JobDBCacheSingleton, JobCombatCategory
+from .utils.jobs import JobDBCacheSingleton
+from .utils.max_subarray import max_subarray_dmg
 
 # cards = {
 #     "1000913": # Balance Drawn, https://www.garlandtools.org/db/#status/913
@@ -25,7 +27,6 @@ def fflogs_fetch(api_url, options):
     """
     options["api_key"] = os.environ["FFLOGS_API_KEY"]
     options["translate"] = True
-
     response = requests.get(api_url, params=options)
 
     return ujson.loads(response.text)
@@ -45,7 +46,6 @@ def fflogs_api(call, report, options={}):
         return {}
 
     api_url = "https://www.fflogs.com/v1/report/{}/{}".format(call, report)
-
     data = fflogs_fetch(api_url, options)
 
     # If this is a fight list, we're done already
@@ -82,7 +82,6 @@ def get_draws(report, start, end):
         # cards
         "filter": 'type="applybuff" and (ability.id=1000913 or ability.id=1000914 or ability.id=1000915 or ability.id=1000916 or ability.id=1000917 or id=1000918)',
     }
-
     event_data = fflogs_api("events/summary", report, options)
     draws = [
         {"timestamp": e["timestamp"], "card": e["ability"]}
@@ -98,7 +97,6 @@ def map_comp(comp):
     """
     job_name = PASCAL_CASE_PATTERN.sub(" ", comp["type"])
     job = JobDBCacheSingleton.get_job_by_name(job_name)
-
     pets = comp["pets"] if "pets" in comp else []
 
     return {
@@ -129,15 +127,21 @@ def get_dmg_events(report, start, end, party):
     options = {"start": start, "end": end}
     events = fflogs_api("events/damage-done", report, options)["events"]
 
-    # TODO: dict with jobs
-    start = events[0]["timestamp"]
+    print(len(events))
+
+    # start = events[0]["timestamp"]
+    last = {}
+
     for x in events:
         src_id = x["sourceID"]
         src_idx = None
         for i, p in enumerate(party):
-            if p["id"] == src_id or (p["pets"] and any(src_id in y for y in p["pets"])):
+            if p["id"] == src_id or (
+                p["pets"] and any(src_id == y["id"] for y in p["pets"])  # include pets
+            ):
                 src_idx = i
 
+        # It's an LB or something weird that doesn't belong to a party member
         if src_idx is None:
             continue
 
@@ -145,13 +149,35 @@ def get_dmg_events(report, start, end, party):
         if "events" not in src:
             src["events"] = [[]]
 
-        if x["timestamp"] - start <= 1000:
+        if src_idx in last and x["timestamp"] - last[src_idx] <= 1000:
             src["events"][-1].append(x)
         else:
             src["events"].append([x])
-            start = x["timestamp"]
+            last[src_idx] = x["timestamp"]
 
     return party
+
+
+def calc_dmg(player):
+    CARD_DURATION = 15
+    best_sum, best_start, best_end = max_subarray_dmg(player["events"], CARD_DURATION)
+    start_ts = player["events"][best_start][0]["timestamp"]
+    end_ts = player["events"][best_end][0]["timestamp"]
+
+    return {
+        "name": player["name"],
+        "job": player["job"],
+        "total_damage": best_sum,
+        "start_timestamp": start_ts,
+        "end_timestamp": end_ts,
+    }
+
+
+def convert(ms):
+    hours, ms = divmod(ms, 36e5)
+    minutes, ms = divmod(ms, 6e4)
+    seconds = float(ms) / 1e3
+    return "%i:%02i:%06.3f" % (hours, minutes, seconds)
 
 
 def app():
@@ -160,8 +186,6 @@ def app():
     """
     # debug
     args = ["cZGBRqWgfPVKp3yx", 8081809, 8567936]
-
-    # party = {x["id"]: x for x in get_party(*args)}
     party = get_party(*args)
     draws = get_draws(*args)
     # parse draw
@@ -174,6 +198,23 @@ def app():
     f.write(ujson.dumps(first_draw_dmg))
     f.close()
 
-    logging.info(pformat(party))
-    logging.info(pformat(first_draw))
-    logging.info(pformat(first_draw_dmg))
+    # logging.info(pformat(party))
+    # logging.info(pformat(first_draw))
+    # logging.info(pformat(first_draw_dmg))
+
+    res = sorted(
+        [calc_dmg(x) for x in filter(lambda x: "events" in x, first_draw_dmg)],
+        key=lambda x: x["total_damage"],
+        reverse=True,
+    )
+    logging.info(ujson.dumps(res))
+
+    for i, job in enumerate(res):
+        # start_ts = first_draw_dmg[job["start_idx"]]
+        # end_ts = first_draw_dmg[job["end_idx"]]
+        tcs = convert(job["start_timestamp"] - args[1])
+        # tce = convert(job["end_timestamp"] - args[2])
+
+        print(
+            f'{i+1}. {job["name"]} ({job["job"]}), total dmg: {job["total_damage"]}, card @ {tcs}'
+        )

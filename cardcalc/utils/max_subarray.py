@@ -1,17 +1,21 @@
-def max_subarray(xs, k):
+def sum_dmg(xs):
+    return sum(x["amount"] for x in xs)
+
+
+def max_subarray_dmg(xs, k):
     n = len(xs)
     if n < k:
-        return -1
+        k = n
 
     best_start = 0
     best_end = k
     best_sum = 0
     for i in range(k):
-        best_sum += xs[i]
+        best_sum += sum_dmg(xs[i])
 
     curr_sum = best_sum
     for i in range(k, n):
-        curr_sum += xs[i] - xs[i - k]
+        curr_sum += sum_dmg(xs[i]) - sum_dmg(xs[i - k])
         if curr_sum > best_sum:
             best_sum = curr_sum
             best_start = i - k + 1  # actual current sum start idx
