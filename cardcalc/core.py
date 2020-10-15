@@ -1,13 +1,13 @@
+import click
 import requests
 import ujson
 import os
-import logging
 import re
-from pprint import pformat
-import datetime
+import copy
 
 from .utils.jobs import JobDBCacheSingleton
 from .utils.max_subarray import max_subarray_dmg
+from .utils.time import convert
 
 # cards = {
 #     "1000913": # Balance Drawn, https://www.garlandtools.org/db/#status/913
@@ -17,7 +17,7 @@ from .utils.max_subarray import max_subarray_dmg
 #     "1000917": # Ewer Drawn, https://www.garlandtools.org/db/#status/917
 #     "1000918": # Spire Drawn, https://www.garlandtools.org/db/#status/918
 # }
-logging.basicConfig(level="DEBUG")
+# logging.basicConfig(level="DEBUG")
 PASCAL_CASE_PATTERN = re.compile(r"(?<!^)(?=[A-Z])")
 
 
@@ -126,10 +126,6 @@ def get_dmg_events(report, start, end, party):
     """
     options = {"start": start, "end": end}
     events = fflogs_api("events/damage-done", report, options)["events"]
-
-    print(len(events))
-
-    # start = events[0]["timestamp"]
     last = {}
 
     for x in events:
@@ -161,60 +157,74 @@ def get_dmg_events(report, start, end, party):
 def calc_dmg(player):
     CARD_DURATION = 15
     best_sum, best_start, best_end = max_subarray_dmg(player["events"], CARD_DURATION)
-    start_ts = player["events"][best_start][0]["timestamp"]
-    end_ts = player["events"][best_end][0]["timestamp"]
+
+    try:
+        start_ts = next(iter(player["events"][best_start]), None)
+        start_ts = None if start_ts is None else start_ts["timestamp"]
+    except IndexError:
+        start_ts = None
 
     return {
         "name": player["name"],
         "job": player["job"],
         "total_damage": best_sum,
         "start_timestamp": start_ts,
-        "end_timestamp": end_ts,
     }
 
 
-def convert(ms):
-    hours, ms = divmod(ms, 36e5)
-    minutes, ms = divmod(ms, 6e4)
-    seconds = float(ms) / 1e3
-    return "%i:%02i:%06.3f" % (hours, minutes, seconds)
+def get_fight_times(report, fight_id):
+    """
+    Gets fight start and end by id
+    """
+    res = fflogs_api("fights", report)
+    print(res)
+    fight = next((fight for fight in res["fights"] if fight["id"] == fight_id), None)
+    return fight["start_time"], fight["end_time"]
 
 
-def app():
+@click.command()
+@click.option(
+    "--report", required=True, prompt="FFLogs report ID", help="Number of greetings."
+)
+@click.option(
+    "--fight",
+    required=True,
+    prompt="FFLogs report fight ID",
+    type=int,
+    help="The person to greet.",
+)
+def app(report, fight):
     """
     Runs the app
     """
-    # debug
-    args = ["cZGBRqWgfPVKp3yx", 8081809, 8567936]
+    fight_start, fight_end = get_fight_times(report, fight)
+    args = [report, fight_start, fight_end]
     party = get_party(*args)
     draws = get_draws(*args)
-    # parse draw
-    first_draw = draws[0]
-    first_draw_dmg = get_dmg_events(
-        args[0], first_draw["timestamp"], first_draw["timestamp"] + 45000, party
-    )
 
-    f = open("dict.json", "w")
-    f.write(ujson.dumps(first_draw_dmg))
-    f.close()
+    for n, draw in enumerate(draws):
+        draw_ts = draw["timestamp"]
 
-    # logging.info(pformat(party))
-    # logging.info(pformat(first_draw))
-    # logging.info(pformat(first_draw_dmg))
+        click.echo(f"Draw {n+1} @ {convert(draw_ts - fight_start)}")
+        click.echo("---\n")
 
-    res = sorted(
-        [calc_dmg(x) for x in filter(lambda x: "events" in x, first_draw_dmg)],
-        key=lambda x: x["total_damage"],
-        reverse=True,
-    )
-    logging.info(ujson.dumps(res))
-
-    for i, job in enumerate(res):
-        # start_ts = first_draw_dmg[job["start_idx"]]
-        # end_ts = first_draw_dmg[job["end_idx"]]
-        tcs = convert(job["start_timestamp"] - args[1])
-        # tce = convert(job["end_timestamp"] - args[2])
-
-        print(
-            f'{i+1}. {job["name"]} ({job["job"]}), total dmg: {job["total_damage"]}, card @ {tcs}'
+        draw_dmg = get_dmg_events(
+            args[0], draw_ts, draw_ts + 45000, copy.deepcopy(party)
         )
+        res = sorted(
+            [calc_dmg(x) for x in filter(lambda x: "events" in x, draw_dmg)],
+            key=lambda x: x["total_damage"],
+            reverse=True,
+        )
+        for i, job in enumerate(res):
+            tcs = (
+                "N/A"
+                if job["start_timestamp"] is None
+                else convert(job["start_timestamp"] - args[1])
+            )
+
+            click.echo(
+                f'{i+1}. {job["name"]} ({job["job"]}), Total DMG: {job["total_damage"]}, Card @ {tcs}'
+            )
+
+    # logging.debug(ujson.dumps(res))
